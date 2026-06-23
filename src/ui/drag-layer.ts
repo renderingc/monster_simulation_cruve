@@ -214,6 +214,7 @@ export class DragLayer {
         targetMap.set(key, {
           monsterIdx: handle.monsterIdx,
           pool: this.pool,
+          dataMode: this.dataMode,
           targets: [],
         });
       }
@@ -224,7 +225,10 @@ export class DragLayer {
       });
     }
 
-    return Array.from(targetMap.values());
+    return Array.from(targetMap.values()).map(t => ({
+      ...t,
+      dataMode: this.dataMode,
+    }));
   }
 
   /** 重置所有手柄到原始值 */
@@ -233,6 +237,40 @@ export class DragLayer {
       handle.currentValue = handle.originalValue;
       handle.isModified = false;
     }
+    this.renderHandles();
+  }
+
+  /** 从表格目标同步到拖拽手柄 */
+  syncFromTable(tableTargets: OptimizationTarget[]): void {
+    if (!this.result) return;
+
+    const isProb = this.dataMode === 'prob';
+    const data = isProb
+      ? (this.pool === 'indoor' ? this.result.indoorSpawnProb : this.result.outdoorSpawnProb)
+      : (this.pool === 'indoor' ? this.result.indoorExpected : this.result.outdoorExpected);
+
+    // 构建表格目标的快速查找表
+    const tableTargetMap = new Map<string, number>();
+    for (const t of tableTargets) {
+      if (t.pool !== this.pool) continue;
+      for (const { wave, value } of t.targets) {
+        tableTargetMap.set(`${t.monsterIdx}-${wave}`, value);
+      }
+    }
+
+    // 更新手柄
+    for (const handle of this.handles) {
+      const key = `${handle.monsterIdx}-${handle.wave}`;
+      if (tableTargetMap.has(key)) {
+        handle.currentValue = tableTargetMap.get(key)!;
+        handle.isModified = true;
+      } else {
+        // 恢复原始值
+        handle.currentValue = handle.originalValue;
+        handle.isModified = false;
+      }
+    }
+
     this.renderHandles();
   }
 

@@ -44,6 +44,36 @@ export class WorkerPool {
     await Promise.all(initPromises);
   }
 
+  /**
+   * 更新已有 Worker 的数据（不销毁重建）
+   * 用于优化器快速迭代场景，性能远优于 init()
+   */
+  async reinit(maps: MapConfig[], monsters: Monster[]): Promise<void> {
+    if (this.workers.length === 0) {
+      return this.init(maps, monsters);
+    }
+
+    // 并行发送更新消息到所有 Worker
+    const updatePromises = this.workers.map((state) => {
+      return new Promise<void>((resolve) => {
+        // 保存旧的 onmessage，设置一次性监听
+        const prevHandler = state.worker.onmessage;
+        state.worker.onmessage = (event: MessageEvent) => {
+          if (event.data.type === 'ready') {
+            state.ready = true;
+            state.worker.onmessage = prevHandler;
+            resolve();
+          }
+        };
+        state.ready = false;
+        state.busy = false; // 重置 busy 状态，init 消息会覆盖之前的状态
+        state.worker.postMessage({ type: 'init', maps, monsters });
+      });
+    });
+
+    await Promise.all(updatePromises);
+  }
+
   /** 获取一个空闲 Worker */
   private getIdleWorker(): WorkerState | null {
     return this.workers.find(w => !w.busy && w.ready) ?? null;

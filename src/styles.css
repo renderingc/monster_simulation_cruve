@@ -67,8 +67,15 @@ body {
 .main-area {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
   overflow: hidden;
+  gap: 0;
+}
+
+/* 上方图表区域 */
+.chart-pane {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .chart-container {
@@ -76,11 +83,57 @@ body {
   background-color: var(--bg-card);
   border-radius: var(--border-radius);
   padding: var(--spacing-md);
-  min-height: 400px;
+  min-height: 0;
+}
+
+/* 可拖拽分隔条 */
+.split-bar {
+  height: 5px;
+  min-height: 5px;
+  background-color: transparent;
+  cursor: row-resize;
+  transition: background-color 0.15s ease;
+  position: relative;
+  flex-shrink: 0;
+  margin: 3px 0;
+}
+
+.split-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: background-color 0.15s ease, width 0.15s ease;
+}
+
+.split-bar:hover::after,
+.split-bar.dragging::after {
+  background-color: rgba(255, 255, 255, 0.4);
+  width: 60px;
+}
+
+.split-bar:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* 下方面板（表格 + 参数面板） */
+.bottom-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: var(--spacing-sm);
+  min-height: 0;
 }
 
 .param-panel {
-  height: 200px;
+  height: 180px;
+  min-height: 120px;
+  flex-shrink: 0;
   background-color: var(--bg-card);
   border-radius: var(--border-radius);
   padding: var(--spacing-md);
@@ -94,6 +147,152 @@ body {
   height: 100%;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.param-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.param-panel-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.rmse-badge {
+  display: inline-block;
+  background: var(--bg-accent);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+
+.change-count {
+  display: inline-block;
+  background: #27ae60;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.param-table-wrapper {
+  overflow-x: auto;
+  max-height: 300px;
+}
+
+.param-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.param-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  border-bottom: 2px solid var(--border-color);
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.param-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.value-cell {
+  font-family: monospace;
+  font-size: 0.78rem;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value-changed {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.row-changed {
+  background: rgba(39, 174, 96, 0.08);
+}
+
+.row-summary td {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+  border-bottom: none;
+  padding-top: 6px;
+}
+
+.param-panel-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--error-color, #e74c3c);
+  font-weight: 500;
+}
+
+.unreachable-banner {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: #856404;
+  line-height: 1.4;
+}
+
+/* ── timeWeight 逐位标签 ── */
+.tw-position-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  line-height: 1.6;
+}
+
+.tw-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-family: monospace;
+  background: var(--bg-accent, #f0f0f0);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tw-tag-changed {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #27ae60;
+  font-weight: 600;
+}
+
+.tw-tag-changed b {
+  color: #0d6efd;
+}
+
+.td-monster-name {
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: top;
+  padding-top: 8px !important;
 }
 
 /* Controls Panel Styles */
@@ -225,4 +424,138 @@ body {
   background-color: var(--color-info);
   width: 0%;
   transition: width 0.3s ease;
+}
+
+/* ============================================
+   Data Table Styles
+   ============================================ */
+.data-table {
+  flex: 1;
+  min-height: 0;
+  background-color: var(--bg-card);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.data-table-wrapper {
+  overflow: auto;
+  flex: 1;
+}
+
+.table-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 60px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+table.data-table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+table.data-table th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-header);
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 6px 4px;
+  text-align: center;
+  z-index: 1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+table.data-table th.th-monster {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  text-align: left;
+  padding-left: 10px;
+}
+
+table.data-table th.th-wave {
+  font-size: 0.78rem;
+}
+
+table.data-table td {
+  padding: 4px 4px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table.data-table td.td-monster {
+  position: sticky;
+  left: 0;
+  background-color: var(--bg-card);
+  z-index: 1;
+  font-weight: 500;
+  text-align: left;
+  padding-left: 10px;
+}
+
+table.data-table td.td-cell {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+table.data-table td.td-cell:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+table.data-table td.td-cell.cell-modified {
+  color: #ff6b6b;
+  font-weight: 600;
+  background-color: rgba(255, 68, 68, 0.08);
+}
+
+table.data-table td.td-cell.cell-modified:hover {
+  background-color: rgba(255, 68, 68, 0.14);
+}
+
+table.data-table td.td-cell.cell-editing {
+  padding: 0;
+  background-color: rgba(33, 150, 243, 0.12);
+}
+
+.cell-input {
+  width: 100%;
+  min-width: 48px;
+  padding: 4px 6px;
+  border: 2px solid var(--color-info);
+  border-radius: 3px;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-size: 0.82rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.cell-input:focus {
+  border-color: #64b5f6;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.25);
+}
+
+/* 隐藏 number input 的上下箭头（保持简洁） */
+.cell-input::-webkit-inner-spin-button,
+.cell-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.cell-input[type="number"] {
+  -moz-appearance: textfield;
 }

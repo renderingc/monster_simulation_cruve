@@ -47,7 +47,45 @@ export function checkSpawnConditions(
   return true;
 }
 
-/** 计算本波次各怪物的生成概率（未归一化），返回 [monsterIdx, rawProb][] */
+/** 计算本波次各怪物的理论生成概率（不依赖场上状态）
+ *  仅考虑 genProb × timeWeight × numWeight[0]，归一化到 0~1 */
+export function computeTheoreticalSpawnProbs(
+  mapCfg: MapConfig,
+  monsters: Monster[],
+  poolType: 'indoor' | 'outdoor',
+  wave: number
+): number[] {
+  const probs: number[] = new Array(monsters.length).fill(0);
+  let total = 0;
+
+  for (const monster of monsters) {
+    if (poolType === 'indoor' && monster.bornPosType !== 1 && monster.bornPosType !== 3) continue;
+    if (poolType === 'outdoor' && monster.bornPosType !== 2 && monster.bornPosType !== 3) continue;
+
+    const genProb = mapCfg.genProb[monster.idx];
+    if (genProb <= 0) continue;
+
+    const tw = getTimeWeight(monster, wave);
+    if (tw <= 0) continue;
+
+    const nw = getNumWeight(monster, 0);
+    if (nw <= 0) continue;
+
+    const raw = genProb * tw * nw;
+    probs[monster.idx] = raw;
+    total += raw;
+  }
+
+  if (total > 0) {
+    for (let i = 0; i < probs.length; i++) {
+      probs[i] = Math.round((probs[i] / total) * 10000) / 10000;
+    }
+  }
+
+  return probs;
+}
+
+/** 计算本波次各怪物的生成概率（含场上状态，用于实际模拟选择） */
 export function computeSpawnProbs(
   mapCfg: MapConfig,
   monsters: Monster[],
@@ -178,11 +216,9 @@ export function monteCarloSimulate(
   const numMonsters = monsters.length;
   const numWaves = mapCfg.numWaves;
 
-  // 累加器
+  // 累加器（仅用于累计数量期望）
   const outdoorAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
   const indoorAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
-  const outdoorSpawnAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
-  const indoorSpawnAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
 
   for (let trial = 0; trial < numTrials; trial++) {
     const result = simulateOneGame(mapCfg, monsters, rng);
@@ -190,13 +226,6 @@ export function monteCarloSimulate(
       for (let idx = 0; idx < numMonsters; idx++) {
         outdoorAccum[wave][idx] += result.outdoor[wave][idx];
         indoorAccum[wave][idx] += result.indoor[wave][idx];
-      }
-      // 累计生成次数
-      if (result.outdoorSpawns[wave] >= 0) {
-        outdoorSpawnAccum[wave][result.outdoorSpawns[wave]]++;
-      }
-      if (result.indoorSpawns[wave] >= 0) {
-        indoorSpawnAccum[wave][result.indoorSpawns[wave]]++;
       }
     }
   }
@@ -212,8 +241,6 @@ export function monteCarloSimulate(
   for (let wave = 0; wave < numWaves; wave++) {
     const outdoorRow: number[] = [];
     const indoorRow: number[] = [];
-    const outProbRow: number[] = [];
-    const inProbRow: number[] = [];
     let outTotal = 0;
     let inTotal = 0;
 
@@ -222,16 +249,15 @@ export function monteCarloSimulate(
       const inExp = indoorAccum[wave][idx] / numTrials;
       outdoorRow.push(Math.round(outExp * 10000) / 10000);
       indoorRow.push(Math.round(inExp * 10000) / 10000);
-      outProbRow.push(Math.round((outdoorSpawnAccum[wave][idx] / numTrials) * 10000) / 10000);
-      inProbRow.push(Math.round((indoorSpawnAccum[wave][idx] / numTrials) * 10000) / 10000);
       outTotal += outExp;
       inTotal += inExp;
     }
 
     outdoorExpected.push(outdoorRow);
     indoorExpected.push(indoorRow);
-    outdoorSpawnProb.push(outProbRow);
-    indoorSpawnProb.push(inProbRow);
+    // 生成概率使用理论值（仅依赖 genProb×timeWeight，不受场上状态影响）
+    outdoorSpawnProb.push(computeTheoreticalSpawnProbs(mapCfg, monsters, 'outdoor', wave));
+    indoorSpawnProb.push(computeTheoreticalSpawnProbs(mapCfg, monsters, 'indoor', wave));
     outdoorTotal.push(Math.round(outTotal * 10000) / 10000);
     indoorTotal.push(Math.round(inTotal * 10000) / 10000);
   }

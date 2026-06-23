@@ -5,11 +5,12 @@ import { CurveChart } from './ui/chart';
 import { DragLayer } from './ui/drag-layer';
 import { ParamPanel } from './ui/param-panel';
 import { FileImport } from './ui/file-import';
-import { exportModifiedExcel } from './export/excel-export';
+import { DataTable } from './ui/data-table';
+import { exportModifiedMonsterExcel } from './export/excel-export';
 import { WorkerPool } from './workers/worker-pool';
 import { Optimizer } from './optimizer/coordinate-descent';
 import { loadExcelFiles } from './parser/excel-parser';
-import type { MapConfig, Monster, OptimizationResult } from './types';
+import type { MapConfig, Monster, OptimizationResult, OptimizationTarget } from './types';
 
 // ============================================================
 // 应用状态
@@ -18,7 +19,12 @@ let maps: MapConfig[] = [];
 let monsters: Monster[] = [];
 let currentMapId: string = '';
 let currentPool: 'indoor' | 'outdoor' = 'indoor';
+let currentDataMode: 'count' | 'prob' = 'count';
 let lastOptimizationResult: OptimizationResult | null = null;
+/** 原始 monster.xlsx 的 ArrayBuffer，导出时直接修改 */
+let originalMonsterBuffer: ArrayBuffer | null = null;
+/** 原始 monster.xlsx 的文件名，用于保存对话框建议名 */
+let originalMonsterFileName: string = 'monster.xlsx';
 /** 应用前的怪物快照，用于导出时对比原值 */
 let originalMonstersSnapshot: Monster[] | null = null;
 let workerPool: WorkerPool | null = null;
@@ -26,7 +32,7 @@ let workerPool: WorkerPool | null = null;
 // ============================================================
 // 初始化 UI
 // ============================================================
-const { sidebar, chartContainer, paramPanel: paramPanelEl, fileInput } = buildLayout();
+const { sidebar, chartContainer, dataTable: dataTableEl, paramPanel: paramPanelEl, fileInput } = buildLayout();
 
 const controls = new Controls(sidebar, {
   onImport: () => fileImport.trigger(),
@@ -36,20 +42,24 @@ const controls = new Controls(sidebar, {
   },
   onPoolChange: (pool) => {
     currentPool = pool;
+    dataTable.setDataMode(currentDataMode);
     renderCurrentCurves();
   },
   onOptimize: runOptimization,
   onReset: resetAll,
   onExport: doExport,
   onDataModeChange: (mode) => {
+    currentDataMode = mode;
     chart.setDataMode(mode);
     dragLayer.setDataMode(mode);
+    dataTable.setDataMode(mode);
   },
 });
 
 const chart = new CurveChart(chartContainer);
 const dragLayer = new DragLayer(chart.getChart());
 const paramPanel = new ParamPanel(paramPanelEl);
+const dataTable = new DataTable(dataTableEl);
 
 paramPanel.onApply = async () => {
   if (!lastOptimizationResult || !workerPool) return;
@@ -94,6 +104,17 @@ paramPanel.onApply = async () => {
   }
 };
 
+// 表格编辑 → 同步到拖拽层
+dataTable.onTargetsChanged = (tableTargets) => {
+  // 将表格目标合并到拖拽层显示
+  dragLayer.syncFromTable(tableTargets);
+};
+
+// 拖拽修改 → 同步到表格
+dragLayer.onTargetChanged = (dragTargets) => {
+  dataTable.syncFromDragLayer(dragTargets);
+};
+
 const fileImport = new FileImport(fileInput, {
   onFilesSelected: async (mapFile, monsterFile) => {
     await handleFilesImported(mapFile, monsterFile);
@@ -113,6 +134,10 @@ async function handleFilesImported(mapFile: File, monsterFile: File): Promise<vo
   controls.setProgress(10, '解析 Excel...');
 
   try {
+    // 保存原始 monster.xlsx 的 ArrayBuffer 和文件名（导出时直接修改）
+    originalMonsterBuffer = await monsterFile.arrayBuffer();
+    originalMonsterFileName = monsterFile.name;
+
     const result = await loadExcelFiles(mapFile, monsterFile);
     maps = result.maps;
     monsters = result.monsters;
@@ -156,10 +181,12 @@ async function runSimulationAndRender(): Promise<void> {
     chart.renderCurves(result, monsters, currentPool);
 
     const mapCfg = maps.find(m => m.mapId === currentMapId)!;
+
+    // 更新表格
+    dataTable.update(result, monsters, currentPool, currentDataMode);
+
+    // 更新拖拽层
     dragLayer.initHandles(result, monsters, currentPool, mapCfg.genProb);
-    dragLayer.onTargetChanged = () => {
-      // 目标点变化时不自动优化，等用户点击"优化"按钮
-    };
 
     controls.setProgress(null);
   } catch (err) {
@@ -168,7 +195,7 @@ async function runSimulationAndRender(): Promise<void> {
   }
 }
 
-/** 渲染当前曲线（切换室内/室外时） */
+/** 渲染当前曲线（切换室内/室外/数据模式时） */
 function renderCurrentCurves(): void {
   const { result } = chart.getCurrentData();
   if (!result) return;
@@ -178,6 +205,38 @@ function renderCurrentCurves(): void {
 
   chart.renderCurves(result, monsters, currentPool);
   dragLayer.initHandles(result, monsters, currentPool, mapCfg.genProb);
+
+  // 表格数据跟随视图切换
+  dataTable.update(result, monsters, currentPool, currentDataMode);
+}
+
+/** 合并拖拽层和表格的目标（拖拽优先） */
+function mergeTargets(
+  primary: OptimizationTarget[],
+  secondary: OptimizationTarget[]
+): OptimizationTarget[] {
+  const merged = new Map<string, OptimizationTarget>();
+
+  // 先插入次要来源（表格）
+  for (const t of secondary) {
+    const key = `${t.monsterIdx}-${t.pool}`;
+    merged.set(key, { ...t, targets: [...t.targets] });
+  }
+
+  // 主要来源（拖拽）覆盖同波次
+  for (const t of primary) {
+    const key = `${t.monsterIdx}-${t.pool}`;
+    if (merged.has(key)) {
+      const existing = merged.get(key)!;
+      const primaryWaves = new Set(t.targets.map(x => x.wave));
+      const filtered = existing.targets.filter(x => !primaryWaves.has(x.wave));
+      merged.set(key, { ...t, targets: [...filtered, ...t.targets] });
+    } else {
+      merged.set(key, { ...t, targets: [...t.targets] });
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 /** 运行参数优化 */
@@ -187,9 +246,18 @@ async function runOptimization(): Promise<void> {
     return;
   }
 
-  const targets = dragLayer.getTargets();
+  // 合并拖拽层和表格的目标值
+  const dragTargets = dragLayer.getTargets();
+  const tableTargets = dataTable.getTargets();
+  const targets = mergeTargets(dragTargets, tableTargets);
+
+  console.log('[优化] 拖拽目标:', dragTargets.length, '表格目标:', tableTargets.length, '合并后:', targets.length);
+  for (const t of targets) {
+    console.log(`  monsterIdx=${t.monsterIdx} pool=${t.pool} waves=[${t.targets.map(x => `w${x.wave}=${x.value.toFixed(1)}`).join(', ')}]`);
+  }
+
   if (targets.length === 0) {
-    alert('请先拖拽曲线点设定目标值');
+    alert('请先在表格中修改数值或拖拽曲线点设定目标值');
     return;
   }
 
@@ -220,26 +288,28 @@ async function runOptimization(): Promise<void> {
 /** 重置所有修改 */
 async function resetAll(): Promise<void> {
   dragLayer.resetTargets();
+  dataTable.reset();
   lastOptimizationResult = null;
   originalMonstersSnapshot = null;
   paramPanel.reset();
   await runSimulationAndRender();
 }
 
-/** 导出 Excel */
-function doExport(): void {
+/** 导出 Excel — 弹出保存对话框，修改原始 monster.xlsx */
+async function doExport(): Promise<void> {
   if (!lastOptimizationResult) {
     alert('请先运行优化，再导出结果');
     return;
   }
 
-  const mapCfg = maps.find(m => m.mapId === currentMapId);
-  if (!mapCfg) return;
+  if (!originalMonsterBuffer) {
+    alert('原始 monster.xlsx 数据丢失，请重新导入');
+    return;
+  }
 
   try {
-    // 使用原始快照作对比，如实反映修改前后的差异
     const refMonsters = originalMonstersSnapshot ?? monsters;
-    exportModifiedExcel(refMonsters, lastOptimizationResult, mapCfg);
+    await exportModifiedMonsterExcel(originalMonsterBuffer, refMonsters, lastOptimizationResult, originalMonsterFileName);
   } catch (err) {
     alert(`导出失败: ${(err as Error).message}`);
   }

@@ -70,6 +70,8 @@ export interface OptimizationTarget {
   monsterIdx: number;
   /** 池子类型 */
   pool: 'indoor' | 'outdoor';
+  /** 数据模式：count=累计数量, prob=生成概率百分比(0~100) */
+  dataMode: 'count' | 'prob';
   /** 目标点列表 */
   targets: { wave: number; value: number }[];
 }
@@ -84,6 +86,10 @@ export interface OptimizationResult {
   verifiedCurve: number[][];
   /** 优化后的 RMSE */
   rmse: number;
+  /** 不可达目标数（受 maxNum/genProb 限制） */
+  unreachableCount: number;
+  /** 不可达原因说明 */
+  unreachableReason: string;
 }
 
 /** 池子状态（模拟内部使用） */
