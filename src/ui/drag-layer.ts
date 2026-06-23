@@ -1,6 +1,6 @@
 import * as echarts from 'echarts';
 import type { Monster, SimulationResult, OptimizationTarget } from '../types';
-import { MONSTER_COLORS } from '../constants';
+import { MONSTER_COLORS, MONSTER_NAMES } from '../constants';
 
 interface DragHandle {
   monsterIdx: number;
@@ -112,6 +112,7 @@ export class DragLayer {
         draggable: 'vertical',
         ondrag: (e: any) => this.onDrag(handle, e),
         ondragend: (e: any) => this.onDragEnd(handle, e),
+        onclick: () => this.onClickHandle(handle),
         z: 100,
       });
     }
@@ -169,6 +170,33 @@ export class DragLayer {
     }
 
     // 触发回调
+    if (this.onTargetChanged) {
+      this.onTargetChanged(this.getTargets());
+    }
+  }
+
+  /** 点击手柄弹出输入框直接修改数值 */
+  private onClickHandle(handle: DragHandle): void {
+    const monster = this.monsters[handle.monsterIdx];
+    if (!monster) return;
+
+    const maxVal = this.dataMode === 'prob' ? 100 : monster.maxNum;
+    const unit = this.dataMode === 'prob' ? '%' : '';
+    const input = prompt(
+      `${MONSTER_NAMES[monster.id] ?? monster.name} 第 ${handle.wave} 波\n当前值: ${handle.currentValue.toFixed(2)}${unit}\n请输入新值 (0~${maxVal}):`,
+      handle.currentValue.toFixed(2)
+    );
+
+    if (input === null) return; // 用户取消
+
+    const val = parseFloat(input);
+    if (isNaN(val)) return;
+
+    // 限制范围
+    handle.currentValue = Math.max(0, Math.min(maxVal, val));
+    handle.isModified = true;
+    this.renderHandles();
+
     if (this.onTargetChanged) {
       this.onTargetChanged(this.getTargets());
     }
