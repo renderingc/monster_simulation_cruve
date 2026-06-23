@@ -8,6 +8,7 @@ export interface ControlCallbacks {
   onOptimize: () => void;
   onReset: () => void;
   onExport: () => void;
+  onDataModeChange: (mode: 'count' | 'prob') => void;
 }
 
 export class Controls {
@@ -53,6 +54,14 @@ export class Controls {
         </div>
 
         <div class="control-section">
+          <h3>数据显示</h3>
+          <div class="tab-group">
+            <button id="count-tab" class="tab-btn active">累计数量</button>
+            <button id="prob-tab" class="tab-btn">生成概率</button>
+          </div>
+        </div>
+
+        <div class="control-section">
           <h3>操作</h3>
           <button id="optimize-btn" class="btn btn-success" disabled>🔍 优化参数</button>
           <button id="reset-btn" class="btn btn-warning" disabled>↩ 重置</button>
@@ -86,6 +95,14 @@ export class Controls {
     this.outdoorTab.addEventListener('click', () => {
       this.setActiveTab('outdoor');
       this.callbacks.onPoolChange('outdoor');
+    });
+    this.container.querySelector('#count-tab')!.addEventListener('click', () => {
+      this.setDataModeTab('count');
+      this.callbacks.onDataModeChange('count');
+    });
+    this.container.querySelector('#prob-tab')!.addEventListener('click', () => {
+      this.setDataModeTab('prob');
+      this.callbacks.onDataModeChange('prob');
     });
     this.optimizeBtn.addEventListener('click', () => this.callbacks.onOptimize());
     this.resetBtn.addEventListener('click', () => this.callbacks.onReset());
@@ -125,6 +142,13 @@ export class Controls {
   private setActiveTab(pool: 'indoor' | 'outdoor'): void {
     this.indoorTab.classList.toggle('active', pool === 'indoor');
     this.outdoorTab.classList.toggle('active', pool === 'outdoor');
+  }
+
+  private setDataModeTab(mode: 'count' | 'prob'): void {
+    const countTab = this.container.querySelector('#count-tab')!;
+    const probTab = this.container.querySelector('#prob-tab')!;
+    countTab.classList.toggle('active', mode === 'count');
+    probTab.classList.toggle('active', mode === 'prob');
   }
 
   /** 显示/隐藏进度条 */

@@ -130,6 +130,8 @@ export class WorkerPool {
 
     const outdoorExpected: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
     const indoorExpected: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
+    const outdoorSpawnProb: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
+    const indoorSpawnProb: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
     const outdoorTotal: number[] = new Array(numWaves).fill(0);
     const indoorTotal: number[] = new Array(numWaves).fill(0);
 
@@ -139,6 +141,8 @@ export class WorkerPool {
         for (let idx = 0; idx < numMonsters; idx++) {
           outdoorExpected[wave][idx] += result.outdoorExpected[wave][idx] * weight;
           indoorExpected[wave][idx] += result.indoorExpected[wave][idx] * weight;
+          outdoorSpawnProb[wave][idx] += result.outdoorSpawnProb[wave][idx] * weight;
+          indoorSpawnProb[wave][idx] += result.indoorSpawnProb[wave][idx] * weight;
         }
         outdoorTotal[wave] += result.outdoorTotal[wave] * weight;
         indoorTotal[wave] += result.indoorTotal[wave] * weight;
@@ -151,6 +155,8 @@ export class WorkerPool {
       numWaves,
       outdoorExpected,
       indoorExpected,
+      outdoorSpawnProb,
+      indoorSpawnProb,
       outdoorTotal,
       indoorTotal,
     };

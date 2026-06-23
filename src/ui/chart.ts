@@ -7,10 +7,24 @@ export class CurveChart {
   private currentResult: SimulationResult | null = null;
   private currentMonsters: Monster[] = [];
   private currentPool: 'indoor' | 'outdoor' = 'indoor';
+  private dataMode: 'count' | 'prob' = 'count';
 
   constructor(container: HTMLElement) {
     this.chart = echarts.init(container);
     window.addEventListener('resize', () => this.chart.resize());
+  }
+
+  /** 切换显示模式 */
+  setDataMode(mode: 'count' | 'prob'): void {
+    this.dataMode = mode;
+    if (this.currentResult) {
+      this.renderCurves(this.currentResult, this.currentMonsters, this.currentPool);
+    }
+  }
+
+  /** 获取当前显示模式 */
+  getDataMode(): 'count' | 'prob' {
+    return this.dataMode;
   }
 
   /** 渲染曲线图 */
@@ -19,7 +33,12 @@ export class CurveChart {
     this.currentMonsters = monsters;
     this.currentPool = pool;
 
-    const data = pool === 'indoor' ? result.indoorExpected : result.outdoorExpected;
+    const data = this.dataMode === 'prob'
+      ? (pool === 'indoor' ? result.indoorSpawnProb : result.outdoorSpawnProb)
+      : (pool === 'indoor' ? result.indoorExpected : result.outdoorExpected);
+    const yAxisName = this.dataMode === 'prob' ? '生成概率' : '期望场上数量';
+    const tooltipUnit = this.dataMode === 'prob' ? '%' : '';
+
     const numWaves = result.numWaves;
     const xData = Array.from({ length: numWaves }, (_, i) => i);
 
@@ -27,7 +46,7 @@ export class CurveChart {
       name: MONSTER_NAMES[m.id] ?? m.name,
       type: 'line' as const,
       smooth: false,
-      data: data.map(waveData => waveData[idx]),
+      data: data.map(waveData => this.dataMode === 'prob' ? +(waveData[idx] * 100).toFixed(1) : waveData[idx]),
       lineStyle: { color: MONSTER_COLORS[idx] },
       itemStyle: { color: MONSTER_COLORS[idx] },
       symbol: 'circle',
@@ -41,7 +60,7 @@ export class CurveChart {
           const wave = params[0].axisValue;
           let html = `第 ${wave} 波<br/>`;
           params.forEach((p: any) => {
-            html += `${p.marker}${p.seriesName}: ${Number(p.value).toFixed(2)}<br/>`;
+            html += `${p.marker}${p.seriesName}: ${Number(p.value).toFixed(2)}${tooltipUnit}<br/>`;
           });
           return html;
         },
@@ -59,8 +78,9 @@ export class CurveChart {
       },
       yAxis: {
         type: 'value',
-        name: '期望场上数量',
+        name: yAxisName,
         min: 0,
+        max: this.dataMode === 'prob' ? 100 : undefined,
       },
       series,
     };

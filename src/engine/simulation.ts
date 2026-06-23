@@ -103,12 +103,12 @@ function weightedChoice(probs: [number, number][], randomVal: number): number | 
   return probs[probs.length - 1][0];
 }
 
-/** 模拟一局游戏，返回每波次每种怪物的场上数量 */
+/** 模拟一局游戏，返回每波次每种怪物的场上数量和生成记录 */
 export function simulateOneGame(
   mapCfg: MapConfig,
   monsters: Monster[],
   rng: { random(): number }
-): { indoor: number[][]; outdoor: number[][] } {
+): { indoor: number[][]; outdoor: number[][]; outdoorSpawns: number[]; indoorSpawns: number[] } {
   const numMonsters = monsters.length;
   const numWaves = mapCfg.numWaves;
 
@@ -117,6 +117,8 @@ export function simulateOneGame(
 
   const outdoorResult: number[][] = [];
   const indoorResult: number[][] = [];
+  const outdoorSpawns: number[] = []; // 每波生成哪个怪物 (-1 = 未生成)
+  const indoorSpawns: number[] = [];
 
   for (let wave = 0; wave < numWaves; wave++) {
     // --- 室外生成 ---
@@ -127,7 +129,12 @@ export function simulateOneGame(
         outdoorState.monsterCounts[chosen]++;
         outdoorState.monsterGenerated[chosen]++;
         outdoorState.currentTotalWeight += monsters[chosen].monsterWeight;
+        outdoorSpawns.push(chosen);
+      } else {
+        outdoorSpawns.push(-1);
       }
+    } else {
+      outdoorSpawns.push(-1);
     }
 
     // --- 室内生成 ---
@@ -138,7 +145,12 @@ export function simulateOneGame(
         indoorState.monsterCounts[chosen]++;
         indoorState.monsterGenerated[chosen]++;
         indoorState.currentTotalWeight += monsters[chosen].monsterWeight;
+        indoorSpawns.push(chosen);
+      } else {
+        indoorSpawns.push(-1);
       }
+    } else {
+      indoorSpawns.push(-1);
     }
 
     // 记录本波结束时的场上数量
@@ -146,7 +158,7 @@ export function simulateOneGame(
     indoorResult.push([...indoorState.monsterCounts]);
   }
 
-  return { indoor: indoorResult, outdoor: outdoorResult };
+  return { indoor: indoorResult, outdoor: outdoorResult, outdoorSpawns, indoorSpawns };
 }
 
 /**
@@ -169,6 +181,8 @@ export function monteCarloSimulate(
   // 累加器
   const outdoorAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
   const indoorAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
+  const outdoorSpawnAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
+  const indoorSpawnAccum: number[][] = Array.from({ length: numWaves }, () => new Array(numMonsters).fill(0));
 
   for (let trial = 0; trial < numTrials; trial++) {
     const result = simulateOneGame(mapCfg, monsters, rng);
@@ -176,6 +190,13 @@ export function monteCarloSimulate(
       for (let idx = 0; idx < numMonsters; idx++) {
         outdoorAccum[wave][idx] += result.outdoor[wave][idx];
         indoorAccum[wave][idx] += result.indoor[wave][idx];
+      }
+      // 累计生成次数
+      if (result.outdoorSpawns[wave] >= 0) {
+        outdoorSpawnAccum[wave][result.outdoorSpawns[wave]]++;
+      }
+      if (result.indoorSpawns[wave] >= 0) {
+        indoorSpawnAccum[wave][result.indoorSpawns[wave]]++;
       }
     }
   }
@@ -185,10 +206,14 @@ export function monteCarloSimulate(
   const indoorExpected: number[][] = [];
   const outdoorTotal: number[] = [];
   const indoorTotal: number[] = [];
+  const outdoorSpawnProb: number[][] = [];
+  const indoorSpawnProb: number[][] = [];
 
   for (let wave = 0; wave < numWaves; wave++) {
     const outdoorRow: number[] = [];
     const indoorRow: number[] = [];
+    const outProbRow: number[] = [];
+    const inProbRow: number[] = [];
     let outTotal = 0;
     let inTotal = 0;
 
@@ -197,12 +222,16 @@ export function monteCarloSimulate(
       const inExp = indoorAccum[wave][idx] / numTrials;
       outdoorRow.push(Math.round(outExp * 10000) / 10000);
       indoorRow.push(Math.round(inExp * 10000) / 10000);
+      outProbRow.push(Math.round((outdoorSpawnAccum[wave][idx] / numTrials) * 10000) / 10000);
+      inProbRow.push(Math.round((indoorSpawnAccum[wave][idx] / numTrials) * 10000) / 10000);
       outTotal += outExp;
       inTotal += inExp;
     }
 
     outdoorExpected.push(outdoorRow);
     indoorExpected.push(indoorRow);
+    outdoorSpawnProb.push(outProbRow);
+    indoorSpawnProb.push(inProbRow);
     outdoorTotal.push(Math.round(outTotal * 10000) / 10000);
     indoorTotal.push(Math.round(inTotal * 10000) / 10000);
   }
@@ -215,5 +244,7 @@ export function monteCarloSimulate(
     indoorExpected,
     outdoorTotal,
     indoorTotal,
+    outdoorSpawnProb,
+    indoorSpawnProb,
   };
 }

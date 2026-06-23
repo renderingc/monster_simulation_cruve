@@ -41,6 +41,9 @@ const controls = new Controls(sidebar, {
   onOptimize: runOptimization,
   onReset: resetAll,
   onExport: doExport,
+  onDataModeChange: (mode) => {
+    chart.setDataMode(mode);
+  },
 });
 
 const chart = new CurveChart(chartContainer);

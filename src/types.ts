@@ -50,14 +50,18 @@ export interface SimulationResult {
   numTrials: number;
   /** 总波次数 */
   numWaves: number;
-  /** 室外期望数量 [wave][monsterIdx] */
+  /** 室外期望累计数量 [wave][monsterIdx] */
   outdoorExpected: number[][];
-  /** 室内期望数量 [wave][monsterIdx] */
+  /** 室内期望累计数量 [wave][monsterIdx] */
   indoorExpected: number[][];
   /** 室外每波总期望数量 [wave] */
   outdoorTotal: number[];
   /** 室内每波总期望数量 [wave] */
   indoorTotal: number[];
+  /** 室外每波生成概率 [wave][monsterIdx] — 该波选中该怪物的概率 (0~1) */
+  outdoorSpawnProb: number[][];
+  /** 室内每波生成概率 [wave][monsterIdx] */
+  indoorSpawnProb: number[][];
 }
 
 /** 优化目标：用户拖拽设定的目标值 */
