@@ -1,5 +1,15 @@
-/** 怪物显示名称（中文） */
+/** 怪物显示名称 — 覆盖 Excel 中所有可能的 ID（英文 monster_class + 中文 monster_table） */
 export const MONSTER_NAMES: Record<string, string> = {
+  // 英文 ID（来自 map.xlsx monster_class 列）
+  'BansheeGirl': '蕉叶女妖',
+  'Stitcher': '缝补匠',
+  'Spider': '蜘蛛',
+  'Doll': '木偶',
+  'WastelandHound': '废墟恶犬',
+  'SandRat': '沙鼠',
+  'Ghoul': '食尸鬼',
+  'LittleRascal': '流氓猫',
+  // 中文 ID（来自 monster.xlsx id 列）
   '蕉叶女妖': '蕉叶女妖',
   '缝补匠': '缝补匠',
   '蜘蛛': '蜘蛛',
@@ -7,7 +17,20 @@ export const MONSTER_NAMES: Record<string, string> = {
   '废墟恶犬': '废墟恶犬',
   '沙鼠': '沙鼠',
   '食尸鬼': '食尸鬼',
-  'LittleRascal': '流氓猫',
+  '流氓猫': '流氓猫',
+  // 常见 Excel 占位名映射
+  'monsterName.1': '蕉叶女妖',
+  'monsterName.2': '缝补匠',
+  'monsterName.3': '蜘蛛',
+  'monsterName.4': '木偶',
+  'monsterName.5': '废墟恶犬',
+  'monsterName.6': '沙鼠',
+  'monsterName.7': '食尸鬼',
+  'monsterName.8': '流氓猫',
+  // 常见错别字 / 变体
+  '少良': '沙鼠',
+  '丧尸鬼': '食尸鬼',
+  '流浪猫': '流氓猫',
 };
 
 /** 怪物曲线颜色（ECharts 友好） */

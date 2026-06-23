@@ -19,6 +19,8 @@ let monsters: Monster[] = [];
 let currentMapId: string = '';
 let currentPool: 'indoor' | 'outdoor' = 'indoor';
 let lastOptimizationResult: OptimizationResult | null = null;
+/** 应用前的怪物快照，用于导出时对比原值 */
+let originalMonstersSnapshot: Monster[] | null = null;
 let workerPool: WorkerPool | null = null;
 
 // ============================================================
@@ -46,8 +48,46 @@ const dragLayer = new DragLayer(chart.getChart());
 const paramPanel = new ParamPanel(paramPanelEl);
 
 paramPanel.onApply = async () => {
-  if (!lastOptimizationResult) return;
-  await runSimulationAndRender();
+  if (!lastOptimizationResult || !workerPool) return;
+
+  controls.setLocked(true);
+  controls.setProgress(0, '应用优化参数...');
+
+  try {
+    // 保存修改前的快照（供导出对比原值）
+    originalMonstersSnapshot = monsters.map(m => ({
+      ...m,
+      timeWeight: [...m.timeWeight],
+      numWeight: [...m.numWeight],
+    }));
+
+    // 1. 将 time_weight 修改应用到 monsters
+    for (const change of lastOptimizationResult.timeWeightChanges) {
+      monsters[change.monsterIdx].timeWeight = change.newValues;
+    }
+
+    // 2. 将 gen_prob 修改应用到当前地图
+    const mapCfg = maps.find(m => m.mapId === currentMapId);
+    if (mapCfg) {
+      for (const change of lastOptimizationResult.genProbChanges) {
+        mapCfg.genProb[change.monsterIdx] = change.newValue;
+      }
+    }
+
+    // 3. 重新初始化 Worker 池（使用修改后的参数）
+    controls.setProgress(30, '重新初始化引擎...');
+    await workerPool.init(maps, monsters);
+
+    // 4. 重新模拟并渲染
+    await runSimulationAndRender();
+
+    controls.setProgress(null);
+    controls.setLocked(false);
+  } catch (err) {
+    controls.setProgress(null);
+    controls.setLocked(false);
+    alert(`应用失败: ${(err as Error).message}`);
+  }
 };
 
 const fileImport = new FileImport(fileInput, {
@@ -177,6 +217,7 @@ async function runOptimization(): Promise<void> {
 async function resetAll(): Promise<void> {
   dragLayer.resetTargets();
   lastOptimizationResult = null;
+  originalMonstersSnapshot = null;
   paramPanel.reset();
   await runSimulationAndRender();
 }
@@ -192,7 +233,9 @@ function doExport(): void {
   if (!mapCfg) return;
 
   try {
-    exportModifiedExcel(monsters, lastOptimizationResult, mapCfg);
+    // 使用原始快照作对比，如实反映修改前后的差异
+    const refMonsters = originalMonstersSnapshot ?? monsters;
+    exportModifiedExcel(refMonsters, lastOptimizationResult, mapCfg);
   } catch (err) {
     alert(`导出失败: ${(err as Error).message}`);
   }

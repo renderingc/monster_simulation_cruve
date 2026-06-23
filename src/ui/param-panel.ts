@@ -41,8 +41,8 @@ export class ParamPanel {
     for (const change of timeWeightChanges) {
       const monster = originalMonsters[change.monsterIdx];
       const name = MONSTER_NAMES[monster.id] ?? monster.name;
-      const origStr = monster.timeWeight.map(v => v.toFixed(2)).join(' | ');
-      const newStr = change.newValues.map(v => v.toFixed(2)).join(' | ');
+      const origStr = monster.timeWeight.map(v => v.toFixed(2)).join('|');
+      const newStr = change.newValues.map(v => v.toFixed(2)).join('|');
       const isDiff = origStr !== newStr;
 
       html += `

@@ -20,7 +20,7 @@ function calcRMSE(targets: OptimizationTarget[], result: SimulationResult): numb
   return count > 0 ? Math.sqrt(sumSq / count) : 0;
 }
 
-/** 检测不可达目标（genProb=0 或 maxNumGenerated 限制） */
+/** 检测不可达目标 */
 export function getUnreachableWaves(
   targets: OptimizationTarget[],
   mapConfig: MapConfig,
@@ -44,6 +44,76 @@ export function getUnreachableWaves(
   return unreachable;
 }
 
+/** 对单个目标的 timeWeight 进行二分搜索优化 */
+async function optimizeTimeWeight(
+  monsterIdx: number,
+  wave: number,
+  targetValue: number,
+  pool: 'indoor' | 'outdoor',
+  workingMonsters: Monster[],
+  workingMapConfig: MapConfig,
+  workerPool: WorkerPool,
+  baseSeed: number
+): Promise<number> {
+  const monster = workingMonsters[monsterIdx];
+
+  // 确保 timeWeight 数组足够长
+  while (monster.timeWeight.length <= wave) {
+    monster.timeWeight.push(monster.timeWeight.length > 0 ? monster.timeWeight[monster.timeWeight.length - 1] : 1.0);
+  }
+
+  const oldVal = monster.timeWeight[wave];
+  let bestVal = oldVal;
+  let bestError = Infinity;
+
+  // 粗搜：测试多个采样点找到最优方向
+  const samples = [0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0];
+  for (const sample of samples) {
+    monster.timeWeight[wave] = sample;
+    await workerPool.init([workingMapConfig], workingMonsters);
+    const testResult = await workerPool.optimizationRun(workingMapConfig.mapId, 3000, baseSeed + Math.round(sample * 100));
+
+    const testData = pool === 'indoor' ? testResult.indoorExpected : testResult.outdoorExpected;
+    const testValue = testData[wave]?.[monsterIdx] ?? 0;
+    const testError = Math.abs(testValue - targetValue);
+
+    if (testError < bestError) {
+      bestError = testError;
+      bestVal = sample;
+    }
+  }
+
+  // 精搜：在最优样本附近二分搜索
+  let lo = Math.max(0, bestVal - 1.0);
+  let hi = Math.min(5.0, bestVal + 1.0);
+
+  for (let iter = 0; iter < 8; iter++) {
+    const mid = (lo + hi) / 2;
+    monster.timeWeight[wave] = mid;
+    await workerPool.init([workingMapConfig], workingMonsters);
+    const testResult = await workerPool.optimizationRun(workingMapConfig.mapId, 3000, baseSeed + 1000 + iter);
+
+    const testData = pool === 'indoor' ? testResult.indoorExpected : testResult.outdoorExpected;
+    const testValue = testData[wave]?.[monsterIdx] ?? 0;
+    const testError = Math.abs(testValue - targetValue);
+
+    if (testError < bestError) {
+      bestError = testError;
+      bestVal = mid;
+    }
+
+    if (testValue < targetValue) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+
+  // 应用最优值
+  monster.timeWeight[wave] = bestVal;
+  return bestVal;
+}
+
 export class Optimizer {
   private workerPool: WorkerPool;
   private mapConfig: MapConfig;
@@ -55,11 +125,6 @@ export class Optimizer {
     this.monsters = monsters;
   }
 
-  /**
-   * 坐标下降优化
-   * @param targets 用户设定的目标点
-   * @param onProgress 进度回调 (0-100)
-   */
   async optimize(
     targets: OptimizationTarget[],
     onProgress?: (p: number) => void
@@ -68,15 +133,12 @@ export class Optimizer {
     const unreachable = getUnreachableWaves(targets, this.mapConfig, this.monsters);
     const reachableTargets = targets.map(t => ({
       ...t,
-      targets: t.targets.filter(({ wave, value }) => {
-        return !unreachable.some(u =>
-          u.monsterIdx === t.monsterIdx && u.pool === t.pool && u.wave === wave
-        );
-      }),
+      targets: t.targets.filter(({ wave }) =>
+        !unreachable.some(u => u.monsterIdx === t.monsterIdx && u.pool === t.pool && u.wave === wave)
+      ),
     })).filter(t => t.targets.length > 0);
 
     if (reachableTargets.length === 0) {
-      // 所有目标不可达，返回空结果
       const verifiedResult = await this.workerPool.optimizationRun(this.mapConfig.mapId, 2000, 42);
       return {
         timeWeightChanges: [],
@@ -86,7 +148,7 @@ export class Optimizer {
       };
     }
 
-    // 深拷贝怪物配置（避免修改原始数据）
+    // 深拷贝
     const workingMonsters: Monster[] = this.monsters.map(m => ({
       ...m,
       timeWeight: [...m.timeWeight],
@@ -99,127 +161,79 @@ export class Optimizer {
     };
 
     const timeWeightChanges: Map<number, number[]> = new Map();
-    const genProbChanges: Map<number, number> = new Map();
-
-    let bestRMSE = Infinity;
-    let noImprovementCount = 0;
-    const maxRounds = 30;
-    const totalSteps = maxRounds * reachableTargets.reduce((s, t) => s + t.targets.length, 0);
-    let stepsDone = 0;
+    const allTargetPoints = reachableTargets.flatMap(t =>
+      t.targets.map(({ wave, value }) => ({ monsterIdx: t.monsterIdx, pool: t.pool, wave, targetValue: value }))
+    );
+    const totalPoints = allTargetPoints.length;
 
     // 坐标下降主循环
-    for (let round = 0; round < maxRounds; round++) {
-      let roundImproved = false;
+    for (let round = 0; round < 10; round++) {
+      if (onProgress) onProgress(Math.round((round / 10) * 80));
 
-      // 对每个目标按误差从大到小排序
-      const currentResult = await this.workerPool.optimizationRun(
-        workingMapConfig.mapId, 2000, 42 + round
-      );
-
-      // 按误差排序目标
-      const sortedTargets = reachableTargets.flatMap(t =>
-        t.targets.map(({ wave, value }) => ({
-          monsterIdx: t.monsterIdx,
-          pool: t.pool,
-          wave,
-          targetValue: value,
-          currentValue: (t.pool === 'indoor' ? currentResult.indoorExpected : currentResult.outdoorExpected)[wave]?.[t.monsterIdx] ?? 0,
-          error: Math.abs(((t.pool === 'indoor' ? currentResult.indoorExpected : currentResult.outdoorExpected)[wave]?.[t.monsterIdx] ?? 0) - value),
-        }))
-      ).sort((a, b) => b.error - a.error);
-
-      for (const { monsterIdx, wave, targetValue, error } of sortedTargets) {
-        if (error < 0.1) {
-          stepsDone++;
-          continue;
-        }
-
-        const monster = workingMonsters[monsterIdx];
-
-        // 二分搜索 timeWeight[wave]
-        let lo = 0;
-        let hi = 5.0;
-        let bestVal = monster.timeWeight[Math.min(wave, monster.timeWeight.length - 1)];
-
-        for (let iter = 0; iter < 7; iter++) {
-          const mid = (lo + hi) / 2;
-
-          // 临时修改 timeWeight
-          const origTimeWeight = [...monster.timeWeight];
-          const twIdx = Math.min(wave, monster.timeWeight.length - 1);
-          monster.timeWeight[twIdx] = mid;
-
-          // 重新初始化 Worker 并运行
-          await this.workerPool.init([workingMapConfig], workingMonsters);
-          const testResult = await this.workerPool.optimizationRun(workingMapConfig.mapId, 2000, 42);
-
-          const testValue = (wave < testResult.indoorExpected.length)
-            ? (monsterIdx < testResult.indoorExpected[wave].length ? testResult.indoorExpected[wave][monsterIdx] : 0)
-            : 0;
-
-          if (testValue < targetValue) {
-            lo = mid;
-            bestVal = mid;
-          } else {
-            hi = mid;
-          }
-
-          monster.timeWeight = origTimeWeight;
-        }
-
-        // 应用最优值
-        const twIdx = Math.min(wave, monster.timeWeight.length - 1);
-        monster.timeWeight[twIdx] = bestVal;
-        timeWeightChanges.set(monsterIdx, [...monster.timeWeight]);
-        roundImproved = true;
-
-        stepsDone++;
-        if (onProgress) {
-          onProgress(Math.min(90, Math.round((stepsDone / totalSteps) * 90)));
-        }
-      }
-
-      // 重新初始化 Worker 使用更新后的配置
+      // 评估当前误差
       await this.workerPool.init([workingMapConfig], workingMonsters);
+      const currentResult = await this.workerPool.optimizationRun(workingMapConfig.mapId, 3000, 42 + round * 100);
 
-      const roundResult = await this.workerPool.optimizationRun(workingMapConfig.mapId, 2000, 42);
-      const roundRMSE = calcRMSE(reachableTargets, roundResult);
+      // 按误差从大到小排序
+      const sortedPoints = allTargetPoints
+        .map(tp => {
+          const data = tp.pool === 'indoor' ? currentResult.indoorExpected : currentResult.outdoorExpected;
+          const currentValue = data[tp.wave]?.[tp.monsterIdx] ?? 0;
+          return { ...tp, currentValue, error: Math.abs(currentValue - tp.targetValue) };
+        })
+        .sort((a, b) => b.error - a.error);
 
-      if (roundRMSE < bestRMSE - 0.01) {
-        bestRMSE = roundRMSE;
-        noImprovementCount = 0;
-        roundImproved = true;
-      } else {
-        noImprovementCount++;
+      let anyImproved = false;
+
+      for (const { monsterIdx, wave, targetValue, pool, error } of sortedPoints) {
+        if (error < 0.05) continue;
+
+        const newVal = await optimizeTimeWeight(
+          monsterIdx, wave, targetValue, pool,
+          workingMonsters, workingMapConfig,
+          this.workerPool,
+          1000 + round * 1000
+        );
+
+        timeWeightChanges.set(monsterIdx, [...workingMonsters[monsterIdx].timeWeight]);
+        anyImproved = true;
       }
 
-      // 收敛条件
-      if (bestRMSE < 0.1 || noImprovementCount >= 3) break;
+      // 收敛检查
+      await this.workerPool.init([workingMapConfig], workingMonsters);
+      const roundResult = await this.workerPool.optimizationRun(workingMapConfig.mapId, 5000, 42 + round * 100);
+
+      // 检查是否所有目标都已接近
+      let allConverged = true;
+      for (const tp of allTargetPoints) {
+        const data = tp.pool === 'indoor' ? roundResult.indoorExpected : roundResult.outdoorExpected;
+        const val = data[tp.wave]?.[tp.monsterIdx] ?? 0;
+        if (Math.abs(val - tp.targetValue) > 0.1) {
+          allConverged = false;
+          break;
+        }
+      }
+
+      if (allConverged || !anyImproved) break;
     }
 
-    if (onProgress) onProgress(95);
+    if (onProgress) onProgress(90);
 
-    // 最终用 10000 次 MC 验证结果
+    // 最终验证：10000 次
     await this.workerPool.init([workingMapConfig], workingMonsters);
     const finalResult = await this.workerPool.simulate(workingMapConfig.mapId, 10000, 42);
     const finalRMSE = calcRMSE(reachableTargets, finalResult);
 
     if (onProgress) onProgress(100);
 
-    // 构建返回结果
     const timeWeightChangesArr = Array.from(timeWeightChanges.entries()).map(([monsterIdx, newValues]) => ({
       monsterIdx,
       newValues,
     }));
 
-    const genProbChangesArr = Array.from(genProbChanges.entries()).map(([monsterIdx, newValue]) => ({
-      monsterIdx,
-      newValue,
-    }));
-
     return {
       timeWeightChanges: timeWeightChangesArr,
-      genProbChanges: genProbChangesArr,
+      genProbChanges: [],
       verifiedCurve: finalResult.indoorExpected,
       rmse: finalRMSE,
     };
