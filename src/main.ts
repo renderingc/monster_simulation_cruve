@@ -43,6 +43,7 @@ const controls = new Controls(sidebar, {
   onExport: doExport,
   onDataModeChange: (mode) => {
     chart.setDataMode(mode);
+    dragLayer.setDataMode(mode);
   },
 });
 

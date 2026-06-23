@@ -18,10 +18,19 @@ export class DragLayer {
   private result: SimulationResult | null = null;
   private pool: 'indoor' | 'outdoor' = 'indoor';
   private genProb: number[] = [];
+  private dataMode: 'count' | 'prob' = 'count';
   public onTargetChanged?: (targets: OptimizationTarget[]) => void;
 
   constructor(chart: echarts.ECharts) {
     this.chart = chart;
+  }
+
+  /** 设置显示模式，手柄数据同步切换 */
+  setDataMode(mode: 'count' | 'prob'): void {
+    this.dataMode = mode;
+    if (this.result) {
+      this.initHandles(this.result, this.monsters, this.pool, this.genProb);
+    }
   }
 
   /**
@@ -43,7 +52,11 @@ export class DragLayer {
     this.genProb = genProb;
     this.handles = [];
 
-    const data = pool === 'indoor' ? result.indoorExpected : result.outdoorExpected;
+    // 根据显示模式选择数据源
+    const isProb = this.dataMode === 'prob';
+    const data = isProb
+      ? (pool === 'indoor' ? result.indoorSpawnProb : result.outdoorSpawnProb)
+      : (pool === 'indoor' ? result.indoorExpected : result.outdoorExpected);
 
     for (const monster of monsters) {
       const idx = monster.idx;
@@ -56,7 +69,8 @@ export class DragLayer {
       const isReachable = genProb[idx] > 0;
 
       for (let wave = 0; wave < result.numWaves; wave++) {
-        const value = data[wave][idx];
+        const rawVal = data[wave][idx];
+        const value = isProb ? rawVal * 100 : rawVal; // 概率模式转为百分比
         this.handles.push({
           monsterIdx: idx,
           wave,
